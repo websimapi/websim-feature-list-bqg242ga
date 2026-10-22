@@ -4,7 +4,6 @@ const URGENCY = [
   { key: 'medium', label: 'Medium', color: '#d4a84b', icon: '<line x1="5" y1="9" x2="19" y2="9"/><line x1="5" y1="15" x2="19" y2="15"/>' },
   { key: 'low', label: 'Low', color: '#5fa37a', icon: '<path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/>' },
 ];
-const RANK = Object.fromEntries(URGENCY.map((u, i) => [u.key, i]));
 const byKey = (key) => URGENCY.find((u) => u.key === key) ?? URGENCY[2];
 
 const UPLOAD = '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>';
@@ -197,13 +196,12 @@ function saveComposer() {
   );
 }
 
-// Sorted by the active key (date = created, type = urgency); ties keep oldest first.
-function sortedItems() {
+// Keep the features with the picked tag (if any), sorted by date.
+function visibleItems() {
   const sign = sortDir === 'asc' ? 1 : -1;
-  return [...items].sort((a, b) => {
-    const main = sortKey === 'date' ? a.created - b.created : RANK[a.urgency] - RANK[b.urgency];
-    return sign * main || a.created - b.created;
-  });
+  return items
+    .filter((i) => !filterTag || i.urgency === filterTag)
+    .sort((a, b) => sign * (a.created - b.created));
 }
 
 function attachmentsOf(itemId) {
@@ -213,7 +211,7 @@ function attachmentsOf(itemId) {
 }
 
 function render() {
-  keepFocus(list, () => list.replaceChildren(...sortedItems().map(renderItem)));
+  keepFocus(list, () => list.replaceChildren(...visibleItems().map(renderItem)));
   for (const t of list.querySelectorAll('.title')) autosize(t);
 }
 
@@ -598,51 +596,101 @@ document.addEventListener('paste', (e) => {
   else stage(picked);
 });
 
-// ---------- Sort toolbar ----------
-// Date and type (urgency) are the sort keys. Tapping the active one flips its direction.
+// ---------- Toolbar: date sort, tag filter, see all ----------
 const CAL_ICON = '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>';
 const TAG_ICON = '<path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>';
 const ARROW_ICON = '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>';
+const LIST_ICON = '<line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>';
 
-const SORTS = {
-  date: { name: 'Sort by date', icon: CAL_ICON, asc: 'oldest first', desc: 'newest first' },
-  type: { name: 'Sort by type', icon: TAG_ICON, asc: 'most urgent first', desc: 'least urgent first' },
-};
-let sortKey = 'type';
-let sortDir = 'asc';
+const dateBtn = document.getElementById('sort-date');
+const tagWrap = document.getElementById('tag-wrap');
+const tagBtn = document.getElementById('tag-btn');
+const tagMenu = document.getElementById('tag-menu');
+const seeAllBtn = document.getElementById('see-all');
 
-const sortBtns = {
-  date: document.getElementById('sort-date'),
-  type: document.getElementById('sort-type'),
-};
-for (const key of Object.keys(SORTS)) {
-  const btn = sortBtns[key];
-  btn.innerHTML = svgIcon(SORTS[key].icon) + svgIcon(ARROW_ICON).replace('<svg ', '<svg class="dir" ');
-  btn.addEventListener('click', () => tapSort(key));
+let sortDir = 'asc'; // date: asc = oldest first
+let filterTag = null; // urgency key to show, or null for every feature
+
+dateBtn.innerHTML = svgIcon(CAL_ICON) + svgIcon(ARROW_ICON).replace('<svg ', '<svg class="dir" ');
+tagBtn.innerHTML = svgIcon(TAG_ICON);
+seeAllBtn.innerHTML = svgIcon(LIST_ICON);
+
+for (const u of URGENCY) {
+  const option = document.createElement('button');
+  option.type = 'button';
+  option.className = 'tag-option';
+  option.setAttribute('role', 'menuitem');
+  option.dataset.tag = u.key;
+  option.style.setProperty('--c', u.color);
+  option.innerHTML = svgIcon(u.icon) + '<span>' + u.label + '</span>';
+  option.addEventListener('click', () => pickTag(u.key));
+  tagMenu.append(option);
 }
 
-function paintSort() {
-  for (const key of Object.keys(SORTS)) {
-    const s = SORTS[key];
-    const active = sortKey === key;
-    const btn = sortBtns[key];
-    btn.classList.toggle('active', active);
-    btn.dataset.dir = active ? sortDir : '';
-    btn.setAttribute('aria-label', s.name + ', ' + s[active ? sortDir : 'asc']);
+dateBtn.addEventListener('click', tapDate);
+tagBtn.addEventListener('click', () => openTagMenu(tagMenu.hidden));
+seeAllBtn.addEventListener('click', () => {
+  if (filterTag !== null) setFilter(null);
+});
+
+// Close the tag menu on an outside tap, on Escape, or when tabbing away.
+document.addEventListener('pointerdown', (e) => {
+  if (!tagMenu.hidden && !tagWrap.contains(e.target)) openTagMenu(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (tagMenu.hidden) return;
+  if (e.key === 'Escape') {
+    openTagMenu(false);
+    tagBtn.focus();
+  } else if (e.key === 'Tab') {
+    setTimeout(() => {
+      if (!tagWrap.contains(document.activeElement)) openTagMenu(false);
+    });
   }
+});
+
+function openTagMenu(open) {
+  tagMenu.hidden = !open;
+  tagBtn.setAttribute('aria-expanded', String(open));
+  if (open) (tagMenu.querySelector('[aria-current="true"]') ?? tagMenu.querySelector('button')).focus();
 }
 
-function tapSort(key) {
-  if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-  else {
-    sortKey = key;
-    sortDir = 'asc';
-  }
-  paintSort();
+function pickTag(key) {
+  openTagMenu(false);
+  setFilter(key);
+  tagBtn.focus();
+}
+
+function setFilter(key) {
+  filterTag = key;
+  paintToolbar();
   render();
-  announce(SORTS[key].name + ', ' + SORTS[key][sortDir]);
+  announce(key ? 'Showing ' + byKey(key).label + ' features' : 'Showing all features');
 }
-paintSort();
+
+const dateWords = () => (sortDir === 'asc' ? 'oldest first' : 'newest first');
+
+function tapDate() {
+  sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  paintToolbar();
+  render();
+  announce('Sort by date, ' + dateWords());
+}
+
+function paintToolbar() {
+  const tag = filterTag ? byKey(filterTag) : null;
+  dateBtn.dataset.dir = sortDir;
+  dateBtn.setAttribute('aria-label', 'Sort by date, ' + dateWords());
+  tagBtn.classList.toggle('active', !!tag);
+  tagBtn.style.setProperty('--c', tag ? tag.color : '');
+  tagBtn.setAttribute('aria-label', tag ? 'Filter by tag, showing ' + tag.label : 'Filter by tag');
+  seeAllBtn.setAttribute('aria-disabled', String(!tag));
+  for (const option of tagMenu.children) {
+    if (option.dataset.tag === filterTag) option.setAttribute('aria-current', 'true');
+    else option.removeAttribute('aria-current');
+  }
+}
+paintToolbar();
 
 // ---------- Start ----------
 try {
