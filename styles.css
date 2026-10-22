@@ -167,6 +167,13 @@ button {
   color: var(--fg);
 }
 
+.add-plus {
+  display: none;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1;
+}
+
 /* Phones: icon only */
 @media (max-width: 480px) {
   .urgency {
@@ -178,5 +185,19 @@ button {
 
   .urgency .text {
     display: none;
+  }
+
+  .add {
+    width: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .add-label {
+    display: none;
+  }
+
+  .add-plus {
+    display: block;
   }
 }
