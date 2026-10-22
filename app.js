@@ -1,11 +1,11 @@
 const URGENCY = [
-  { key: 'urgent', label: 'Urgent', color: '#e5484d' },
-  { key: 'high', label: 'High', color: '#f76b15' },
-  { key: 'medium', label: 'Medium', color: '#e0a800' },
-  { key: 'low', label: 'Low', color: '#30a46c' },
+  { key: 'urgent', label: 'Urgent', color: '#e5484d', icon: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' },
+  { key: 'high', label: 'High', color: '#f76b15', icon: '<path d="m17 11-5-5-5 5"/><path d="m17 18-5-5-5 5"/>' },
+  { key: 'medium', label: 'Medium', color: '#e0a800', icon: '<line x1="5" y1="9" x2="19" y2="9"/><line x1="5" y1="15" x2="19" y2="15"/>' },
+  { key: 'low', label: 'Low', color: '#30a46c', icon: '<path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/>' },
 ];
 const RANK = Object.fromEntries(URGENCY.map((u, i) => [u.key, i]));
-const colorOf = (key) => URGENCY.find((u) => u.key === key)?.color ?? '#888';
+const byKey = (key) => URGENCY.find((u) => u.key === key) ?? URGENCY[2];
 
 // ---------- IndexedDB storage ----------
 const DB_NAME = 'feature-list';
@@ -37,16 +37,47 @@ const getAll = () => tx('readonly', (s) => s.getAll());
 const putItem = (item) => tx('readwrite', (s) => s.put(item));
 const deleteItem = (id) => tx('readwrite', (s) => s.delete(id));
 
+// ---------- Urgency picker: icon + label, native select overlaid for input ----------
+function makeUrgencyPicker(initial, onChange) {
+  const wrap = document.createElement('label');
+  wrap.className = 'urgency';
+
+  const icon = document.createElement('span');
+  icon.className = 'icon';
+  const text = document.createElement('span');
+  text.className = 'text';
+
+  const select = document.createElement('select');
+  select.setAttribute('aria-label', 'Urgency');
+  for (const u of URGENCY) select.add(new Option(u.label, u.key));
+
+  const paint = (key) => {
+    const u = byKey(key);
+    select.value = u.key;
+    wrap.style.setProperty('--c', u.color);
+    icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${u.icon}</svg>`;
+    text.textContent = u.label;
+  };
+
+  paint(initial);
+  select.addEventListener('change', () => {
+    paint(select.value);
+    onChange?.(select.value);
+  });
+
+  wrap.append(icon, text, select);
+  return { el: wrap, get value() { return select.value; } };
+}
+
 // ---------- State & UI ----------
 const list = document.getElementById('list');
 const form = document.getElementById('add-form');
 const titleInput = document.getElementById('new-title');
-const urgencySelect = document.getElementById('new-urgency');
+const newUrgency = makeUrgencyPicker('medium');
+document.getElementById('new-urgency').replaceWith(newUrgency.el);
 
 let items = [];
-
-for (const u of URGENCY) urgencySelect.add(new Option(u.label, u.key));
-urgencySelect.value = 'medium';
+let freshId = null;
 
 function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -64,8 +95,8 @@ function render() {
 
 function renderItem(item) {
   const li = document.createElement('li');
-  li.className = 'item';
-  li.style.setProperty('--c', colorOf(item.urgency));
+  li.className = 'item' + (item.id === freshId ? ' fresh' : '');
+  li.style.setProperty('--c', byKey(item.urgency).color);
 
   const title = document.createElement('input');
   title.type = 'text';
@@ -81,12 +112,7 @@ function renderItem(item) {
     update(item.id, { title: value });
   });
 
-  const urgency = document.createElement('select');
-  urgency.className = 'urgency';
-  urgency.setAttribute('aria-label', 'Urgency');
-  for (const u of URGENCY) urgency.add(new Option(u.label, u.key));
-  urgency.value = item.urgency;
-  urgency.addEventListener('change', () => update(item.id, { urgency: urgency.value }));
+  const urgency = makeUrgencyPicker(item.urgency, (key) => update(item.id, { urgency: key }));
 
   const del = document.createElement('button');
   del.type = 'button';
@@ -95,7 +121,7 @@ function renderItem(item) {
   del.setAttribute('aria-label', 'Delete feature');
   del.addEventListener('click', () => removeItem(item.id));
 
-  li.append(title, urgency, del);
+  li.append(title, urgency.el, del);
   return li;
 }
 
@@ -120,11 +146,15 @@ form.addEventListener('submit', async (e) => {
   const item = {
     id: newId(),
     title: name,
-    urgency: urgencySelect.value,
+    urgency: newUrgency.value,
     created: Date.now(),
   };
   items.push(item);
   titleInput.value = '';
+  freshId = item.id;
+  setTimeout(() => {
+    if (freshId === item.id) freshId = null;
+  }, 500);
   render();
   titleInput.focus();
   await putItem(item);
