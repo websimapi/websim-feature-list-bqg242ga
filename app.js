@@ -197,10 +197,13 @@ function saveComposer() {
   );
 }
 
+// Sorted by the active key (date = created, type = urgency); ties keep oldest first.
 function sortedItems() {
-  return [...items].sort(
-    (a, b) => RANK[a.urgency] - RANK[b.urgency] || a.created - b.created,
-  );
+  const sign = sortDir === 'asc' ? 1 : -1;
+  return [...items].sort((a, b) => {
+    const main = sortKey === 'date' ? a.created - b.created : RANK[a.urgency] - RANK[b.urgency];
+    return sign * main || a.created - b.created;
+  });
 }
 
 function attachmentsOf(itemId) {
@@ -594,6 +597,52 @@ document.addEventListener('paste', (e) => {
   if (targetId) attachFiles(targetId, picked);
   else stage(picked);
 });
+
+// ---------- Sort toolbar ----------
+// Date and type (urgency) are the sort keys. Tapping the active one flips its direction.
+const CAL_ICON = '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>';
+const TAG_ICON = '<path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>';
+const ARROW_ICON = '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>';
+
+const SORTS = {
+  date: { name: 'Sort by date', icon: CAL_ICON, asc: 'oldest first', desc: 'newest first' },
+  type: { name: 'Sort by type', icon: TAG_ICON, asc: 'most urgent first', desc: 'least urgent first' },
+};
+let sortKey = 'type';
+let sortDir = 'asc';
+
+const sortBtns = {
+  date: document.getElementById('sort-date'),
+  type: document.getElementById('sort-type'),
+};
+for (const key of Object.keys(SORTS)) {
+  const btn = sortBtns[key];
+  btn.innerHTML = svgIcon(SORTS[key].icon) + svgIcon(ARROW_ICON).replace('<svg ', '<svg class="dir" ');
+  btn.addEventListener('click', () => tapSort(key));
+}
+
+function paintSort() {
+  for (const key of Object.keys(SORTS)) {
+    const s = SORTS[key];
+    const active = sortKey === key;
+    const btn = sortBtns[key];
+    btn.classList.toggle('active', active);
+    btn.dataset.dir = active ? sortDir : '';
+    btn.setAttribute('aria-label', s.name + ', ' + s[active ? sortDir : 'asc']);
+  }
+}
+
+function tapSort(key) {
+  if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  else {
+    sortKey = key;
+    sortDir = 'asc';
+  }
+  paintSort();
+  render();
+  announce(SORTS[key].name + ', ' + SORTS[key][sortDir]);
+}
+paintSort();
 
 // ---------- Start ----------
 try {

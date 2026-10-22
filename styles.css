@@ -341,6 +341,54 @@ button {
   gap: 6px;
 }
 
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.sort-btn {
+  position: relative;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.sort-btn:hover {
+  color: var(--fg);
+}
+
+.sort-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.sort-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sort-btn .dir {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 13px;
+  height: 13px;
+  padding: 1px;
+  border-radius: 50%;
+  background: var(--panel);
+  display: none;
+}
+
+.sort-btn.active .dir {
+  display: block;
+}
+
+.sort-btn[data-dir="desc"] .dir {
+  transform: rotate(180deg);
+}
+
 .composer.drop .field {
   outline: 2px dashed var(--accent);
   outline-offset: 4px;
