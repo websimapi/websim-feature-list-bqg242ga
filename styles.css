@@ -168,6 +168,27 @@ button {
   line-height: 1;
 }
 
+.add-form .attach {
+  flex: 0 0 auto;
+  width: 44px;
+  padding: 0;
+  border-color: var(--line);
+}
+
+.add-form.drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: 12px;
+}
+
+.staged {
+  margin-bottom: 16px;
+}
+
+.staged:empty {
+  display: none;
+}
+
 .item .row {
   display: flex;
   align-items: center;
@@ -180,7 +201,7 @@ button {
 }
 
 /* ---- Attach button + attachment chips ---- */
-.item .attach {
+.attach {
   position: relative;
   flex: 0 0 auto;
   min-width: 44px;
@@ -192,16 +213,16 @@ button {
   color: var(--muted);
 }
 
-.item .attach:hover {
+.attach:hover {
   color: var(--fg);
 }
 
-.item .attach svg {
+.attach svg {
   width: 20px;
   height: 20px;
 }
 
-.item .attach .count {
+.attach .count {
   position: absolute;
   top: 4px;
   right: 2px;

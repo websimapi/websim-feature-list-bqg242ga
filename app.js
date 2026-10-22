@@ -7,7 +7,8 @@ const URGENCY = [
 const RANK = Object.fromEntries(URGENCY.map((u, i) => [u.key, i]));
 const byKey = (key) => URGENCY.find((u) => u.key === key) ?? URGENCY[2];
 
-const PAPERCLIP = '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>';
+const UPLOAD = '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>';
+const svgIcon = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 
 // ---------- IndexedDB storage ----------
 const DB_NAME = 'feature-list';
@@ -80,7 +81,7 @@ function makeUrgencyPicker(initial, onChange) {
     const u = byKey(key);
     select.value = u.key;
     wrap.style.setProperty('--c', u.color);
-    icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${u.icon}</svg>`;
+    icon.innerHTML = svgIcon(u.icon);
     text.textContent = u.label;
   };
 
@@ -97,6 +98,10 @@ function makeUrgencyPicker(initial, onChange) {
 // ---------- Attachment helpers ----------
 const isImage = (att) => att.type.startsWith('image/');
 const extOf = (name) => (name.includes('.') ? name.split('.').pop() : 'file').slice(0, 4);
+
+// Clipboard images often arrive without a name, so give them one.
+const nameFor = (file, stamp) =>
+  file.name || `pasted-${stamp}.${(file.type.split('/')[1] || 'bin').split('+')[0]}`;
 
 const urls = new Map();
 function urlOf(att) {
@@ -116,15 +121,21 @@ const titleInput = document.getElementById('new-title');
 const newUrgency = makeUrgencyPicker('medium');
 document.getElementById('new-urgency').replaceWith(newUrgency.el);
 
+const newAttach = document.getElementById('new-attach');
+newAttach.innerHTML = svgIcon(UPLOAD);
+const stagedEl = document.getElementById('staged');
+
+// One hidden picker shared by the form and every row; onPicked says where the files go.
 const fileInput = document.createElement('input');
 fileInput.type = 'file';
 fileInput.multiple = true;
 fileInput.hidden = true;
 document.body.append(fileInput);
-let pickingFor = null;
+let onPicked = null;
 
 let items = [];
 let attachments = [];
+let staged = []; // files chosen in the add form, saved when the feature is added
 let freshId = null;
 
 function newId() {
@@ -177,7 +188,7 @@ function renderItem(item) {
   const attach = document.createElement('button');
   attach.type = 'button';
   attach.className = 'attach';
-  attach.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PAPERCLIP}</svg>`;
+  attach.innerHTML = svgIcon(UPLOAD);
   attach.setAttribute('aria-label', `Attach files to ${item.title}`);
   if (mine.length) {
     const count = document.createElement('span');
@@ -188,7 +199,7 @@ function renderItem(item) {
   // Keep focus where it is so a pending title edit isn't committed (and the list re-rendered) mid-click.
   attach.addEventListener('mousedown', (e) => e.preventDefault());
   attach.addEventListener('click', () => {
-    pickingFor = item.id;
+    onPicked = (picked) => attachFiles(item.id, picked);
     fileInput.click();
   });
 
@@ -202,7 +213,7 @@ function renderItem(item) {
   row.append(title, urgency.el, attach, del);
   li.append(row);
 
-  if (mine.length) li.append(renderFiles(mine));
+  if (mine.length) li.append(renderFiles(mine, removeAttachment));
 
   // Drag files from the desktop onto a row to attach them.
   const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
@@ -224,7 +235,8 @@ function renderItem(item) {
   return li;
 }
 
-function renderFiles(list) {
+// Chips for saved attachments or staged files; onRemove receives the chip's id.
+function renderFiles(list, onRemove) {
   const wrap = document.createElement('div');
   wrap.className = 'files';
 
@@ -265,13 +277,50 @@ function renderFiles(list) {
     remove.className = 'file-remove';
     remove.textContent = '×';
     remove.setAttribute('aria-label', `Remove ${att.name}`);
-    remove.addEventListener('click', () => removeAttachment(att.id));
+    remove.addEventListener('click', () => onRemove(att.id));
 
     chip.append(link, remove);
     wrap.append(chip);
   }
   return wrap;
 }
+
+function renderStaged() {
+  stagedEl.replaceChildren(...(staged.length ? [renderFiles(staged, unstage)] : []));
+  newAttach.querySelector('.count')?.remove();
+  if (staged.length) {
+    const count = document.createElement('span');
+    count.className = 'count';
+    count.textContent = staged.length;
+    newAttach.append(count);
+  }
+}
+
+function stage(picked) {
+  const t0 = Date.now();
+  staged.push(
+    ...picked.map((file, i) => ({
+      id: newId(),
+      name: nameFor(file, t0 + i),
+      type: file.type || '',
+      blob: file,
+    })),
+  );
+  renderStaged();
+}
+
+function unstage(id) {
+  const rec = staged.find((s) => s.id === id);
+  if (!rec) return;
+  staged = staged.filter((s) => s.id !== id);
+  forget(rec);
+  renderStaged();
+}
+
+newAttach.addEventListener('click', () => {
+  onPicked = stage;
+  fileInput.click();
+});
 
 async function update(id, patch) {
   const item = items.find((i) => i.id === id);
@@ -296,8 +345,7 @@ async function attachFiles(itemId, picked) {
   const added = picked.map((file, i) => ({
     id: newId(),
     itemId,
-    // Clipboard images often arrive without a name (e.g. "image.png" or ""), so give them one.
-    name: file.name || `pasted-${t0 + i}.${(file.type.split('/')[1] || 'bin').split('+')[0]}`,
+    name: nameFor(file, t0 + i),
     type: file.type || '',
     size: file.size,
     created: t0 + i,
@@ -327,10 +375,27 @@ async function removeAttachment(id) {
 
 fileInput.addEventListener('change', () => {
   const picked = [...fileInput.files];
-  const itemId = pickingFor;
-  pickingFor = null;
+  const handler = onPicked;
+  onPicked = null;
   fileInput.value = '';
-  if (itemId) attachFiles(itemId, picked);
+  if (handler && picked.length) handler(picked);
+});
+
+// Drop files onto the add form to stage them for the new feature.
+const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+form.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  form.classList.add('drop');
+});
+form.addEventListener('dragleave', (e) => {
+  if (!form.contains(e.relatedTarget)) form.classList.remove('drop');
+});
+form.addEventListener('drop', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  form.classList.remove('drop');
+  stage([...e.dataTransfer.files]);
 });
 
 form.addEventListener('submit', async (e) => {
@@ -343,6 +408,11 @@ form.addEventListener('submit', async (e) => {
     urgency: newUrgency.value,
     created: Date.now(),
   };
+  const files = staged.map((s) => s.blob);
+  staged.forEach(forget);
+  staged = [];
+  renderStaged();
+
   items.push(item);
   titleInput.value = '';
   freshId = item.id;
@@ -352,9 +422,11 @@ form.addEventListener('submit', async (e) => {
   render();
   titleInput.focus();
   await putItem(item);
+  await attachFiles(item.id, files);
 });
 
-// ---------- Paste files (Ctrl/Cmd+V) into the feature being worked on ----------
+// ---------- Paste files (Ctrl/Cmd+V) ----------
+// Goes to the add form when it has focus, otherwise to the row being worked on.
 let hoveredId = null;
 list.addEventListener('pointerover', (e) => {
   hoveredId = e.target.closest?.('.item')?.dataset.id ?? null;
@@ -369,11 +441,11 @@ document.addEventListener('paste', (e) => {
     .map((i) => i.getAsFile())
     .filter(Boolean);
   if (!picked.length) return; // plain text paste: leave it to the browser
-  // Target the row with focus, otherwise the row under the pointer.
-  const targetId = document.activeElement?.closest?.('.item')?.dataset.id ?? hoveredId;
-  if (!targetId) return;
   e.preventDefault();
-  attachFiles(targetId, picked);
+  if (form.contains(document.activeElement)) return stage(picked);
+  const targetId = document.activeElement?.closest?.('.item')?.dataset.id ?? hoveredId;
+  if (targetId) attachFiles(targetId, picked);
+  else stage(picked);
 });
 
 // ---------- Start ----------
