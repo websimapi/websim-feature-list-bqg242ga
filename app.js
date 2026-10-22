@@ -298,9 +298,20 @@ function renderItem(item) {
   del.addEventListener('click', () => removeItem(item.id));
 
   row.append(title, urgency.el, attach, del);
-  li.append(row);
 
-  if (mine.length) li.append(renderFiles(mine, removeAttachment));
+  // Images get large tiles (beside the feature on desktop); other files stay as chips.
+  const images = mine.filter(isImage);
+  const others = mine.filter((a) => !isImage(a));
+  const main = document.createElement('div');
+  main.className = 'main';
+  main.append(row);
+  if (others.length) main.append(renderFiles(others, removeAttachment));
+
+  const body = document.createElement('div');
+  body.className = 'body';
+  body.append(main);
+  if (images.length) body.append(renderMedia(images));
+  li.append(body);
 
   // Drag files from the desktop onto a row to attach them.
   li.addEventListener('dragover', (e) => {
@@ -319,6 +330,41 @@ function renderItem(item) {
   });
 
   return li;
+}
+
+// Large image tiles. One image sits on the left on desktop; several sit on the right.
+function renderMedia(images) {
+  const wrap = document.createElement('div');
+  wrap.className = 'media ' + (images.length > 1 ? 'many right' : 'left');
+
+  for (const att of images) {
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+
+    const link = document.createElement('a');
+    link.href = urlOf(att);
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.title = att.name;
+    link.setAttribute('aria-label', att.name);
+
+    const img = document.createElement('img');
+    img.src = urlOf(att);
+    img.alt = '';
+    link.append(img);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'tile-remove';
+    remove.dataset.key = `${att.id}:remove`;
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', `Remove ${att.name}`);
+    remove.addEventListener('click', () => removeAttachment(att.id));
+
+    tile.append(link, remove);
+    wrap.append(tile);
+  }
+  return wrap;
 }
 
 // Chips for saved attachments or staged files; onRemove receives the chip's id.

@@ -295,6 +295,100 @@ button {
   color: var(--fg);
 }
 
+/* ---- Image tiles: below the feature on phones, beside it on desktop ---- */
+.item .body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.item .main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px 4px;
+}
+
+.tile {
+  position: relative;
+  flex: 0 0 auto;
+  width: 88px;
+  height: 88px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.tile a {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tile .tile-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  background: rgba(13, 10, 12, 0.75);
+  color: var(--fg);
+  font-size: 16px;
+  border-radius: 50%;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .item .body {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  /* One image on the left, several on the right in a 2-column grid */
+  .media {
+    flex: 0 0 auto;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    padding: 0;
+  }
+
+  .media.left {
+    order: -1;
+  }
+
+  .tile {
+    width: 150px;
+    height: 150px;
+  }
+
+  .media.many {
+    display: grid;
+    grid-template-columns: repeat(2, 112px);
+  }
+
+  .media.many .tile {
+    width: 112px;
+    height: 112px;
+  }
+}
+
 /* ---- Composer: new-feature box pinned to the bottom ---- */
 .composer {
   position: sticky;
