@@ -150,6 +150,7 @@ function render() {
 function renderItem(item) {
   const li = document.createElement('li');
   li.className = 'item' + (item.id === freshId ? ' fresh' : '');
+  li.dataset.id = item.id;
   li.style.setProperty('--c', byKey(item.urgency).color);
 
   const row = document.createElement('div');
@@ -290,12 +291,13 @@ async function removeItem(id) {
 }
 
 async function attachFiles(itemId, picked) {
-  if (!picked.length) return;
+  if (!picked.length || !items.some((i) => i.id === itemId)) return;
   const t0 = Date.now();
   const added = picked.map((file, i) => ({
     id: newId(),
     itemId,
-    name: file.name,
+    // Clipboard images often arrive without a name (e.g. "image.png" or ""), so give them one.
+    name: file.name || `pasted-${t0 + i}.${(file.type.split('/')[1] || 'bin').split('+')[0]}`,
     type: file.type || '',
     size: file.size,
     created: t0 + i,
@@ -350,6 +352,28 @@ form.addEventListener('submit', async (e) => {
   render();
   titleInput.focus();
   await putItem(item);
+});
+
+// ---------- Paste files (Ctrl/Cmd+V) into the feature being worked on ----------
+let hoveredId = null;
+list.addEventListener('pointerover', (e) => {
+  hoveredId = e.target.closest?.('.item')?.dataset.id ?? null;
+});
+list.addEventListener('pointerleave', () => {
+  hoveredId = null;
+});
+
+document.addEventListener('paste', (e) => {
+  const picked = [...(e.clipboardData?.items ?? [])]
+    .filter((i) => i.kind === 'file')
+    .map((i) => i.getAsFile())
+    .filter(Boolean);
+  if (!picked.length) return; // plain text paste: leave it to the browser
+  // Target the row with focus, otherwise the row under the pointer.
+  const targetId = document.activeElement?.closest?.('.item')?.dataset.id ?? hoveredId;
+  if (!targetId) return;
+  e.preventDefault();
+  attachFiles(targetId, picked);
 });
 
 // ---------- Start ----------
