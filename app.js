@@ -17,16 +17,18 @@ const desktopPointer = matchMedia('(hover: hover) and (pointer: fine)');
 const DB_NAME = 'feature-list';
 const STORE = 'features';
 const FILES = 'attachments';
+const DRAFTS = 'drafts'; // composer text and files staged but not yet saved to a feature
 
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 2);
+    const req = indexedDB.open(DB_NAME, 3);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(FILES)) {
         db.createObjectStore(FILES, { keyPath: 'id' }).createIndex('itemId', 'itemId');
       }
+      if (!db.objectStoreNames.contains(DRAFTS)) db.createObjectStore(DRAFTS, { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -53,6 +55,11 @@ const putAttachments = (list) => tx(FILES, 'readwrite', (s) => {
   for (const a of list) s.put(a);
 });
 const deleteAttachment = (id) => tx(FILES, 'readwrite', (s) => s.delete(id));
+const getAllDrafts = () => tx(DRAFTS, 'readonly', (s) => s.getAll());
+const putDrafts = (list) => tx(DRAFTS, 'readwrite', (s) => {
+  for (const d of list) s.put(d);
+});
+const deleteDraft = (id) => tx(DRAFTS, 'readwrite', (s) => s.delete(id));
 
 async function deleteItemWithAttachments(id, attachmentIds) {
   const db = await dbPromise;
@@ -60,6 +67,22 @@ async function deleteItemWithAttachments(id, attachmentIds) {
     const t = db.transaction([STORE, FILES], 'readwrite');
     t.objectStore(STORE).delete(id);
     for (const aid of attachmentIds) t.objectStore(FILES).delete(aid);
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error);
+  });
+}
+
+// Saving a new feature: store it, move its staged files into attachments, and drop them from drafts, in one transaction.
+async function commitFeature(item, added) {
+  const db = await dbPromise;
+  return new Promise((resolve, reject) => {
+    const t = db.transaction([STORE, FILES, DRAFTS], 'readwrite');
+    t.objectStore(STORE).put(item);
+    for (const a of added) {
+      t.objectStore(FILES).put(a);
+      t.objectStore(DRAFTS).delete(a.id);
+    }
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);
     t.onabort = () => reject(t.error);
@@ -93,7 +116,7 @@ function makeUrgencyPicker(initial, onChange, label) {
   });
 
   wrap.append(icon, select);
-  return { el: wrap, select, get value() { return select.value; } };
+  return { el: wrap, select, set: paint, get value() { return select.value; } };
 }
 
 // ---------- Attachment helpers ----------
@@ -123,7 +146,7 @@ const titleInput = document.getElementById('new-title');
 const stagedEl = document.getElementById('staged');
 const statusEl = document.getElementById('status');
 
-const newUrgency = makeUrgencyPicker('medium', null, 'Urgency for new feature');
+const newUrgency = makeUrgencyPicker('medium', () => saveComposer(), 'Urgency for new feature');
 document.getElementById('new-urgency').replaceWith(newUrgency.el);
 
 const newAttach = document.getElementById('new-attach');
@@ -139,7 +162,7 @@ let onPicked = null;
 
 let items = [];
 let attachments = [];
-let staged = []; // files chosen in the add form, saved when the feature is added
+let staged = []; // files chosen in the add form, saved to IndexedDB until the feature is added
 let freshId = null;
 
 function newId() {
@@ -166,6 +189,13 @@ const autosize = (el) => {
   el.style.height = 'auto';
   el.style.height = `${el.scrollHeight}px`;
 };
+
+// The new-feature text and urgency are saved as they change, so a reload keeps them.
+function saveComposer() {
+  putDrafts([{ id: 'composer', title: titleInput.value, urgency: newUrgency.value }]).catch((err) =>
+    console.error('Could not save draft', err),
+  );
+}
 
 function sortedItems() {
   return [...items].sort(
@@ -360,27 +390,41 @@ function renderStaged() {
   });
 }
 
-function stage(picked) {
+async function stage(picked) {
   const t0 = Date.now();
-  staged.push(
-    ...picked.map((file, i) => ({
-      id: newId(),
-      name: nameFor(file, t0 + i),
-      type: file.type || '',
-      blob: file,
-    })),
-  );
+  const recs = picked.map((file, i) => ({
+    id: newId(),
+    name: nameFor(file, t0 + i),
+    type: file.type || '',
+    created: t0 + i,
+    blob: file,
+  }));
+  staged.push(...recs);
   renderStaged();
   announce(`${picked.length} ${picked.length === 1 ? 'file' : 'files'} staged for the new feature`);
+  try {
+    await putDrafts(recs);
+  } catch (err) {
+    console.error('Could not save staged files', err);
+    staged = staged.filter((s) => !recs.includes(s));
+    recs.forEach(forget);
+    renderStaged();
+    alert('Could not save those files.');
+  }
 }
 
-function unstage(id) {
+async function unstage(id) {
   const rec = staged.find((s) => s.id === id);
   if (!rec) return;
   staged = staged.filter((s) => s.id !== id);
   forget(rec);
   renderStaged();
   announce(`Removed ${rec.name}`);
+  try {
+    await deleteDraft(id);
+  } catch (err) {
+    console.error('Could not remove staged file', err);
+  }
 }
 
 newAttach.dataset.key = 'new:attach';
@@ -469,6 +513,7 @@ form.addEventListener('drop', (e) => {
 });
 
 // Enter adds on desktop (Shift+Enter for a new line); Ctrl/Cmd+Enter adds anywhere.
+titleInput.addEventListener('input', saveComposer);
 titleInput.addEventListener('keydown', (e) => {
   if (e.isComposing || e.key !== 'Enter') return;
   if (e.ctrlKey || e.metaKey || (!e.shiftKey && desktopPointer.matches)) {
@@ -487,13 +532,23 @@ form.addEventListener('submit', async (e) => {
     urgency: newUrgency.value,
     created: Date.now(),
   };
-  const files = staged.map((s) => s.blob);
-  staged.forEach(forget);
+  const added = staged.map((s) => ({
+    id: s.id,
+    itemId: item.id,
+    name: s.name,
+    type: s.type,
+    size: s.blob.size,
+    created: s.created,
+    blob: s.blob,
+  }));
+  const previousStaged = staged;
   staged = [];
   renderStaged();
 
   items.push(item);
+  attachments.push(...added);
   titleInput.value = '';
+  saveComposer();
   freshId = item.id;
   setTimeout(() => {
     if (freshId === item.id) freshId = null;
@@ -501,8 +556,20 @@ form.addEventListener('submit', async (e) => {
   render();
   announce(`Added ${name}`);
   titleInput.focus();
-  await putItem(item);
-  await attachFiles(item.id, files);
+  try {
+    await commitFeature(item, added);
+  } catch (err) {
+    console.error('Could not save feature', err);
+    items = items.filter((i) => i.id !== item.id);
+    attachments = attachments.filter((a) => a.itemId !== item.id);
+    added.forEach(forget);
+    staged = previousStaged;
+    titleInput.value = name;
+    renderStaged();
+    render();
+    saveComposer();
+    alert('Could not save this feature.');
+  }
 });
 
 // ---------- Paste files (Ctrl/Cmd+V) ----------
@@ -539,4 +606,16 @@ try {
 } catch (err) {
   console.error('Could not load saved attachments', err);
 }
+try {
+  const drafts = (await getAllDrafts()) ?? [];
+  const composer = drafts.find((d) => d.id === 'composer');
+  staged = drafts.filter((d) => d.id !== 'composer').sort((a, b) => a.created - b.created);
+  if (composer) {
+    titleInput.value = composer.title ?? '';
+    newUrgency.set(composer.urgency ?? 'medium');
+  }
+} catch (err) {
+  console.error('Could not load drafts', err);
+}
+renderStaged();
 render();
