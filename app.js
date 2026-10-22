@@ -10,6 +10,9 @@ const byKey = (key) => URGENCY.find((u) => u.key === key) ?? URGENCY[2];
 const UPLOAD = '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>';
 const svgIcon = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 
+// Enter adds the feature on desktop; on phones Enter is a new line.
+const desktopPointer = matchMedia('(hover: hover) and (pointer: fine)');
+
 // ---------- IndexedDB storage ----------
 const DB_NAME = 'feature-list';
 const STORE = 'features';
@@ -63,26 +66,24 @@ async function deleteItemWithAttachments(id, attachmentIds) {
   });
 }
 
-// ---------- Urgency picker: icon + label, native select overlaid for input ----------
-function makeUrgencyPicker(initial, onChange) {
+// ---------- Urgency picker: icon, native select overlaid for input ----------
+function makeUrgencyPicker(initial, onChange, label) {
   const wrap = document.createElement('label');
   wrap.className = 'urgency';
 
   const icon = document.createElement('span');
   icon.className = 'icon';
-  const text = document.createElement('span');
-  text.className = 'text';
 
   const select = document.createElement('select');
-  select.setAttribute('aria-label', 'Urgency');
+  select.setAttribute('aria-label', label);
   for (const u of URGENCY) select.add(new Option(u.label, u.key));
 
   const paint = (key) => {
     const u = byKey(key);
     select.value = u.key;
     wrap.style.setProperty('--c', u.color);
+    wrap.title = `Urgency: ${u.label}`;
     icon.innerHTML = svgIcon(u.icon);
-    text.textContent = u.label;
   };
 
   paint(initial);
@@ -91,13 +92,14 @@ function makeUrgencyPicker(initial, onChange) {
     onChange?.(select.value);
   });
 
-  wrap.append(icon, text, select);
-  return { el: wrap, get value() { return select.value; } };
+  wrap.append(icon, select);
+  return { el: wrap, select, get value() { return select.value; } };
 }
 
 // ---------- Attachment helpers ----------
 const isImage = (att) => att.type.startsWith('image/');
 const extOf = (name) => (name.includes('.') ? name.split('.').pop() : 'file').slice(0, 4);
+const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
 
 // Clipboard images often arrive without a name, so give them one.
 const nameFor = (file, stamp) =>
@@ -118,12 +120,14 @@ function forget(att) {
 const list = document.getElementById('list');
 const form = document.getElementById('add-form');
 const titleInput = document.getElementById('new-title');
-const newUrgency = makeUrgencyPicker('medium');
+const stagedEl = document.getElementById('staged');
+const statusEl = document.getElementById('status');
+
+const newUrgency = makeUrgencyPicker('medium', null, 'Urgency for new feature');
 document.getElementById('new-urgency').replaceWith(newUrgency.el);
 
 const newAttach = document.getElementById('new-attach');
 newAttach.innerHTML = svgIcon(UPLOAD);
-const stagedEl = document.getElementById('staged');
 
 // One hidden picker shared by the form and every row; onPicked says where the files go.
 const fileInput = document.createElement('input');
@@ -142,6 +146,27 @@ function newId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
+// Screen reader announcements via the live region.
+function announce(message) {
+  statusEl.textContent = '';
+  requestAnimationFrame(() => {
+    statusEl.textContent = message;
+  });
+}
+
+// Re-rendering replaces DOM nodes; put focus back on the matching control afterwards.
+function keepFocus(root, change) {
+  const active = document.activeElement;
+  const key = root.contains(active) ? active.dataset.key : undefined;
+  change();
+  if (key) root.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
+}
+
+const autosize = (el) => {
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+};
+
 function sortedItems() {
   return [...items].sort(
     (a, b) => RANK[a.urgency] - RANK[b.urgency] || a.created - b.created,
@@ -155,8 +180,13 @@ function attachmentsOf(itemId) {
 }
 
 function render() {
-  list.replaceChildren(...sortedItems().map(renderItem));
+  keepFocus(list, () => list.replaceChildren(...sortedItems().map(renderItem)));
+  for (const t of list.querySelectorAll('.title')) autosize(t);
 }
+
+window.addEventListener('resize', () => {
+  for (const t of list.querySelectorAll('.title')) autosize(t);
+});
 
 function renderItem(item) {
   const li = document.createElement('li');
@@ -167,38 +197,63 @@ function renderItem(item) {
   const row = document.createElement('div');
   row.className = 'row';
 
-  const title = document.createElement('input');
-  title.type = 'text';
+  const title = document.createElement('textarea');
+  title.rows = 1;
   title.className = 'title';
   title.value = item.title;
   title.setAttribute('aria-label', 'Feature name');
-  title.addEventListener('change', () => {
+  title.dataset.key = `${item.id}:title`;
+  const commitTitle = () => {
     const value = title.value.trim();
     if (!value) {
       title.value = item.title;
-      return;
+      autosize(title);
+    } else if (value !== item.title) {
+      update(item.id, { title: value });
     }
-    update(item.id, { title: value });
+  };
+  title.addEventListener('input', () => autosize(title));
+  title.addEventListener('change', commitTitle);
+  title.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      title.blur();
+    } else if (e.key === 'Escape') {
+      title.value = item.title;
+      title.blur();
+    }
   });
 
-  const urgency = makeUrgencyPicker(item.urgency, (key) => update(item.id, { urgency: key }));
+  const urgency = makeUrgencyPicker(
+    item.urgency,
+    (key) => update(item.id, { urgency: key }),
+    `Urgency for ${item.title}`,
+  );
+  urgency.select.dataset.key = `${item.id}:urgency`;
 
   const mine = attachmentsOf(item.id);
 
   const attach = document.createElement('button');
   attach.type = 'button';
   attach.className = 'attach';
+  attach.dataset.key = `${item.id}:attach`;
   attach.innerHTML = svgIcon(UPLOAD);
-  attach.setAttribute('aria-label', `Attach files to ${item.title}`);
+  attach.setAttribute(
+    'aria-label',
+    `Attach files to ${item.title}${mine.length ? `, ${mine.length} attached` : ''}`,
+  );
   if (mine.length) {
     const count = document.createElement('span');
     count.className = 'count';
+    count.setAttribute('aria-hidden', 'true');
     count.textContent = mine.length;
     attach.append(count);
   }
-  // Keep focus where it is so a pending title edit isn't committed (and the list re-rendered) mid-click.
+  // Keep focus in the title so a pending edit isn't lost (or re-rendered away) mid-click.
   attach.addEventListener('mousedown', (e) => e.preventDefault());
   attach.addEventListener('click', () => {
+    commitTitle();
     onPicked = (picked) => attachFiles(item.id, picked);
     fileInput.click();
   });
@@ -206,8 +261,9 @@ function renderItem(item) {
   const del = document.createElement('button');
   del.type = 'button';
   del.className = 'delete';
+  del.dataset.key = `${item.id}:delete`;
   del.textContent = '×';
-  del.setAttribute('aria-label', 'Delete feature');
+  del.setAttribute('aria-label', `Delete ${item.title}`);
   del.addEventListener('click', () => removeItem(item.id));
 
   row.append(title, urgency.el, attach, del);
@@ -216,7 +272,6 @@ function renderItem(item) {
   if (mine.length) li.append(renderFiles(mine, removeAttachment));
 
   // Drag files from the desktop onto a row to attach them.
-  const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
   li.addEventListener('dragover', (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();
@@ -236,11 +291,11 @@ function renderItem(item) {
 }
 
 // Chips for saved attachments or staged files; onRemove receives the chip's id.
-function renderFiles(list, onRemove) {
+function renderFiles(files, onRemove) {
   const wrap = document.createElement('div');
   wrap.className = 'files';
 
-  for (const att of list) {
+  for (const att of files) {
     const chip = document.createElement('div');
     chip.className = 'file';
 
@@ -264,6 +319,7 @@ function renderFiles(list, onRemove) {
     } else {
       thumb = document.createElement('span');
       thumb.className = 'file-thumb';
+      thumb.setAttribute('aria-hidden', 'true');
       thumb.textContent = extOf(att.name);
     }
 
@@ -275,6 +331,7 @@ function renderFiles(list, onRemove) {
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'file-remove';
+    remove.dataset.key = `${att.id}:remove`;
     remove.textContent = '×';
     remove.setAttribute('aria-label', `Remove ${att.name}`);
     remove.addEventListener('click', () => onRemove(att.id));
@@ -286,14 +343,21 @@ function renderFiles(list, onRemove) {
 }
 
 function renderStaged() {
-  stagedEl.replaceChildren(...(staged.length ? [renderFiles(staged, unstage)] : []));
-  newAttach.querySelector('.count')?.remove();
-  if (staged.length) {
-    const count = document.createElement('span');
-    count.className = 'count';
-    count.textContent = staged.length;
-    newAttach.append(count);
-  }
+  keepFocus(form, () => {
+    stagedEl.replaceChildren(...(staged.length ? [renderFiles(staged, unstage)] : []));
+    newAttach.querySelector('.count')?.remove();
+    newAttach.setAttribute(
+      'aria-label',
+      `Attach files to new feature${staged.length ? `, ${staged.length} staged` : ''}`,
+    );
+    if (staged.length) {
+      const count = document.createElement('span');
+      count.className = 'count';
+      count.setAttribute('aria-hidden', 'true');
+      count.textContent = staged.length;
+      newAttach.append(count);
+    }
+  });
 }
 
 function stage(picked) {
@@ -307,6 +371,7 @@ function stage(picked) {
     })),
   );
   renderStaged();
+  announce(`${picked.length} ${picked.length === 1 ? 'file' : 'files'} staged for the new feature`);
 }
 
 function unstage(id) {
@@ -315,8 +380,10 @@ function unstage(id) {
   staged = staged.filter((s) => s.id !== id);
   forget(rec);
   renderStaged();
+  announce(`Removed ${rec.name}`);
 }
 
+newAttach.dataset.key = 'new:attach';
 newAttach.addEventListener('click', () => {
   onPicked = stage;
   fileInput.click();
@@ -331,11 +398,13 @@ async function update(id, patch) {
 }
 
 async function removeItem(id) {
+  const item = items.find((i) => i.id === id);
   const mine = attachmentsOf(id);
   items = items.filter((i) => i.id !== id);
   attachments = attachments.filter((a) => a.itemId !== id);
   mine.forEach(forget);
   render();
+  if (item) announce(`Deleted ${item.title}`);
   await deleteItemWithAttachments(id, mine.map((a) => a.id));
 }
 
@@ -353,6 +422,7 @@ async function attachFiles(itemId, picked) {
   }));
   attachments.push(...added);
   render();
+  announce(`Attached ${added.length} ${added.length === 1 ? 'file' : 'files'}`);
   try {
     await putAttachments(added);
   } catch (err) {
@@ -370,6 +440,7 @@ async function removeAttachment(id) {
   attachments = attachments.filter((a) => a.id !== id);
   forget(att);
   render();
+  announce(`Removed ${att.name}`);
   await deleteAttachment(id);
 }
 
@@ -382,7 +453,6 @@ fileInput.addEventListener('change', () => {
 });
 
 // Drop files onto the add form to stage them for the new feature.
-const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
 form.addEventListener('dragover', (e) => {
   if (!hasFiles(e)) return;
   e.preventDefault();
@@ -396,6 +466,15 @@ form.addEventListener('drop', (e) => {
   e.preventDefault();
   form.classList.remove('drop');
   stage([...e.dataTransfer.files]);
+});
+
+// Enter adds on desktop (Shift+Enter for a new line); Ctrl/Cmd+Enter adds anywhere.
+titleInput.addEventListener('keydown', (e) => {
+  if (e.isComposing || e.key !== 'Enter') return;
+  if (e.ctrlKey || e.metaKey || (!e.shiftKey && desktopPointer.matches)) {
+    e.preventDefault();
+    form.requestSubmit();
+  }
 });
 
 form.addEventListener('submit', async (e) => {
@@ -420,6 +499,7 @@ form.addEventListener('submit', async (e) => {
     if (freshId === item.id) freshId = null;
   }, 500);
   render();
+  announce(`Added ${name}`);
   titleInput.focus();
   await putItem(item);
   await attachFiles(item.id, files);

@@ -7,7 +7,17 @@
   --line: #3a2b30;
   --muted: #8a7a72;
   --accent: #c9a227;
+  --btn: 32px; /* size of icon buttons */
+  --lines: 2; /* visible lines in the new-feature box */
   font-family: Georgia, "Times New Roman", serif;
+}
+
+/* Phones: bigger touch targets and a taller composer */
+@media (max-width: 480px) {
+  :root {
+    --btn: 36px;
+    --lines: 3;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -20,44 +30,51 @@ body {
 }
 
 .app {
+  display: flex;
+  flex-direction: column;
   max-width: 640px;
+  min-height: 100dvh;
   margin: 0 auto;
-  padding: 16px;
+  padding: 16px 16px 0;
 }
 
-input,
 button {
   font: inherit;
-  font-size: 16px; /* prevents iOS zoom on focus */
-  min-height: 44px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--fg);
-  padding: 0 12px;
-}
-
-button {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--btn);
+  height: var(--btn);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: var(--accent);
   color: #1a1208;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  border-color: transparent;
-  padding: 0 18px;
   cursor: pointer;
 }
 
-.add-form {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-.add-form input {
-  flex: 1;
-  min-width: 0;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
+/* ---- Feature list ---- */
 .list {
   list-style: none;
   margin: 0;
@@ -70,16 +87,21 @@ button {
 .item {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-left: 6px solid var(--c);
   border-radius: 12px;
-  padding: 6px 6px 6px 8px;
+  padding: 4px 4px 4px 8px;
 }
 
 .item.fresh {
   animation: pop-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+
+.item.drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
 }
 
 @keyframes pop-in {
@@ -87,26 +109,50 @@ button {
   to { transform: scale(1); opacity: 1; }
 }
 
+.item .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .item .title {
   flex: 1;
   min-width: 0;
+  min-height: var(--btn);
+  margin: 0;
+  padding: 6px 4px;
   border: none;
+  border-radius: 6px;
   background: transparent;
-  padding: 0 4px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
-/* ---- Urgency picker: icon + label, with a native select overlaid for input ---- */
+.item .delete {
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.item .delete:hover {
+  color: var(--fg);
+}
+
+/* ---- Urgency picker: icon only, native select overlaid for input ---- */
 .urgency {
   position: relative;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 44px;
-  padding: 0 12px;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 600;
+  justify-content: center;
+  width: var(--btn);
+  height: var(--btn);
+  border-radius: 8px;
   color: var(--c);
   background: color-mix(in srgb, var(--c) 16%, var(--panel));
   cursor: pointer;
@@ -121,8 +167,8 @@ button {
 
 .urgency .icon {
   display: inline-flex;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.5);
 }
 
@@ -144,71 +190,11 @@ button {
   cursor: pointer;
   border: 0;
   padding: 0;
-  min-height: 0;
 }
 
-.item .delete {
-  flex: 0 0 auto;
-  min-width: 44px;
-  padding: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 22px;
-  line-height: 1;
-}
-
-.item .delete:hover {
-  color: var(--fg);
-}
-
-.add-plus {
-  display: none;
-  font-size: 24px;
-  font-weight: 500;
-  line-height: 1;
-}
-
-.add-form .attach {
-  flex: 0 0 auto;
-  width: 44px;
-  padding: 0;
-  border-color: var(--line);
-}
-
-.add-form.drop {
-  outline: 2px dashed var(--accent);
-  outline-offset: 4px;
-  border-radius: 12px;
-}
-
-.staged {
-  margin-bottom: 16px;
-}
-
-.staged:empty {
-  display: none;
-}
-
-.item .row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.item.drop {
-  outline: 2px dashed var(--accent);
-  outline-offset: 2px;
-}
-
-/* ---- Attach button + attachment chips ---- */
+/* ---- Upload button and count badge ---- */
 .attach {
   position: relative;
-  flex: 0 0 auto;
-  min-width: 44px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   background: transparent;
   color: var(--muted);
 }
@@ -218,26 +204,27 @@ button {
 }
 
 .attach svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .attach .count {
   position: absolute;
-  top: 4px;
-  right: 2px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
+  top: 0;
+  right: 0;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
   background: var(--accent);
   color: #1a1208;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  line-height: 16px;
+  line-height: 14px;
   text-align: center;
 }
 
+/* ---- Attachment chips ---- */
 .files {
   display: flex;
   flex-wrap: wrap;
@@ -258,13 +245,13 @@ button {
 .file-link {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  min-height: 44px;
-  padding: 0 10px 0 4px;
+  min-height: var(--btn);
+  padding: 0 8px 0 3px;
   color: var(--fg);
   text-decoration: none;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .file-link:hover .file-name {
@@ -273,8 +260,8 @@ button {
 
 .file-thumb {
   flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
+  width: 26px;
+  height: 26px;
   border-radius: 6px;
   object-fit: cover;
   background: var(--panel);
@@ -282,7 +269,7 @@ button {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -291,52 +278,71 @@ button {
 
 .file-name {
   min-width: 0;
-  max-width: 180px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .file .file-remove {
-  flex: 0 0 auto;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0;
-  border-radius: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 20px;
-  line-height: 1;
+  font-size: 18px;
+  border-radius: 0;
 }
 
 .file .file-remove:hover {
   color: var(--fg);
 }
 
-/* Phones: icon only */
-@media (max-width: 480px) {
-  .urgency {
-    width: 44px;
-    padding: 0;
-    justify-content: center;
-    gap: 0;
-  }
+/* ---- Composer: new-feature box pinned to the bottom ---- */
+.composer {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding: 8px 0 16px;
+  background: var(--bg);
+}
 
-  .urgency .text {
-    display: none;
-  }
+.staged {
+  margin-bottom: 8px;
+}
 
-  .add {
-    width: 44px;
-    padding: 0;
-    justify-content: center;
-  }
+.staged:empty {
+  display: none;
+}
 
-  .add-label {
-    display: none;
-  }
+.composer .field {
+  position: relative;
+}
 
-  .add-plus {
-    display: block;
-  }
+.composer textarea {
+  display: block;
+  width: 100%;
+  height: calc(var(--lines) * 1.4em + 56px);
+  margin: 0;
+  padding: 10px 12px 44px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+  resize: none;
+}
+
+.composer .tools {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.composer.drop .field {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: 12px;
 }
