@@ -295,6 +295,33 @@ button {
   color: var(--fg);
 }
 
+/* ---- Done checkbox and archived features ---- */
+.item .check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--btn);
+  height: var(--btn);
+  cursor: pointer;
+}
+
+.item .check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.item.archived {
+  opacity: 0.55;
+}
+
+.item.archived .title {
+  text-decoration: line-through;
+}
+
 /* ---- Image tiles: below the feature on phones, beside it on desktop ---- */
 .item .body {
   display: flex;

@@ -200,7 +200,7 @@ function saveComposer() {
 function visibleItems() {
   const sign = sortDir === 'asc' ? 1 : -1;
   return items
-    .filter((i) => !filterTag || i.urgency === filterTag)
+    .filter((i) => (showArchived || !i.archived) && (!filterTag || i.urgency === filterTag))
     .sort((a, b) => sign * (a.created - b.created));
 }
 
@@ -222,6 +222,7 @@ window.addEventListener('resize', () => {
 function renderItem(item) {
   const li = document.createElement('li');
   li.className = 'item' + (item.id === freshId ? ' fresh' : '');
+  li.classList.toggle('archived', !!item.archived);
   li.dataset.id = item.id;
   li.style.setProperty('--c', byKey(item.urgency).color);
 
@@ -297,7 +298,20 @@ function renderItem(item) {
   del.setAttribute('aria-label', `Delete ${item.title}`);
   del.addEventListener('click', () => removeItem(item.id));
 
-  row.append(title, urgency.el, attach, del);
+  // Checkbox marks the feature done; done features are archived and hidden unless archives are shown.
+  const checkLabel = document.createElement('label');
+  checkLabel.className = 'check';
+  checkLabel.title = 'Mark done';
+  checkLabel.addEventListener('mousedown', (e) => e.preventDefault());
+  const check = document.createElement('input');
+  check.type = 'checkbox';
+  check.checked = !!item.archived;
+  check.dataset.key = `${item.id}:done`;
+  check.setAttribute('aria-label', `Mark ${item.title} done`);
+  check.addEventListener('change', () => setArchived(item.id, check.checked));
+  checkLabel.append(check);
+
+  row.append(checkLabel, title, urgency.el, attach, del);
 
   // Images get large tiles (beside the feature on desktop); other files stay as chips.
   const images = mine.filter(isImage);
@@ -648,18 +662,23 @@ const TAG_ICON = '<path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8
 const ARROW_ICON = '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>';
 const LIST_ICON = '<line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>';
 
+const ARCHIVE_ICON = '<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><line x1="10" y1="12" x2="14" y2="12"/>';
+
 const dateBtn = document.getElementById('sort-date');
 const tagWrap = document.getElementById('tag-wrap');
 const tagBtn = document.getElementById('tag-btn');
 const tagMenu = document.getElementById('tag-menu');
 const seeAllBtn = document.getElementById('see-all');
+const archiveBtn = document.getElementById('archive-btn');
 
 let sortDir = 'asc'; // date: asc = oldest first
 let filterTag = null; // urgency key to show, or null for every feature
+let showArchived = false; // archived (done) features are hidden until this is on
 
 dateBtn.innerHTML = svgIcon(CAL_ICON) + svgIcon(ARROW_ICON).replace('<svg ', '<svg class="dir" ');
 tagBtn.innerHTML = svgIcon(TAG_ICON);
 seeAllBtn.innerHTML = svgIcon(LIST_ICON);
+archiveBtn.innerHTML = svgIcon(ARCHIVE_ICON);
 
 for (const u of URGENCY) {
   const option = document.createElement('button');
@@ -675,6 +694,7 @@ for (const u of URGENCY) {
 
 dateBtn.addEventListener('click', tapDate);
 tagBtn.addEventListener('click', () => openTagMenu(tagMenu.hidden));
+archiveBtn.addEventListener('click', tapArchive);
 seeAllBtn.addEventListener('click', () => {
   if (filterTag !== null) setFilter(null);
 });
@@ -723,6 +743,20 @@ function tapDate() {
   announce('Sort by date, ' + dateWords());
 }
 
+async function setArchived(id, archived) {
+  const item = items.find((i) => i.id === id);
+  if (!item) return;
+  announce((archived ? 'Archived ' : 'Restored ') + item.title);
+  await update(id, { archived });
+}
+
+function tapArchive() {
+  showArchived = !showArchived;
+  paintToolbar();
+  render();
+  announce(showArchived ? 'Showing archived features' : 'Hiding archived features');
+}
+
 function paintToolbar() {
   const tag = filterTag ? byKey(filterTag) : null;
   dateBtn.dataset.dir = sortDir;
@@ -731,6 +765,8 @@ function paintToolbar() {
   tagBtn.style.setProperty('--c', tag ? tag.color : '');
   tagBtn.setAttribute('aria-label', tag ? 'Filter by tag, showing ' + tag.label : 'Filter by tag');
   seeAllBtn.setAttribute('aria-disabled', String(!tag));
+  archiveBtn.classList.toggle('active', showArchived);
+  archiveBtn.setAttribute('aria-pressed', String(showArchived));
   for (const option of tagMenu.children) {
     if (option.dataset.tag === filterTag) option.setAttribute('aria-current', 'true');
     else option.removeAttribute('aria-current');
